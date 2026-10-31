@@ -38,6 +38,9 @@ connects two levels of recursion while keeping model weights fixed:
   </a>
 </p>
 
+
+## new 
+
 Across three professional benchmarks and four model–harness configurations, a
 single Harness² step improves GLM-5 and Gemini 3.5 Flash over their base
 harnesses, with gains of up to 11.5 points on WorkBuddy-Bench, 4.5 points on
