@@ -1,0 +1,27 @@
+{
+  "benchmark": "lab",
+  "substrate": "oc",
+  "k": 1,
+  "mode": "parallel",
+  "domain": "antitrust-competition",
+  "task_id": "antitrust-competition/analyze-antitrust-hsr-strategy",
+  "max_tasks": 1,
+  "workers": 1,
+  "seed": null,
+  "pricing": {
+    "model": "gemini-3.5-flash",
+    "input_usd_per_million": 1.50,
+    "output_and_reasoning_usd_per_million": 9.00,
+    "checked_on": "2026-10-31",
+    "source": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+    "notes": "Standard global pricing; estimate excludes caching discounts, grounding, retries not reported by the runtime, and other services. Recheck before execution."
+  },
+  "isolation": {
+    "require_agent_launcher": true,
+    "network_policy": "default deny with an enforced model/auth gateway allowlist",
+    "blocked_hosts": ["github.com", "raw.githubusercontent.com", "huggingface.co", "hf.co", "*.hf.co"],
+    "local_rubrics": "Never mount the LAB tasks tree into an agent process. Mount only its staged workspace and sanitized context.",
+    "default_launcher": "scripts/lab_agent_sandbox.py",
+    "default_launcher_network": "disabled; cannot call models"
+  }
+}

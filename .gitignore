@@ -1,0 +1,25 @@
+.venv/
+.env
+.env.*
+!.env.example
+.aws/
+.codex/
+.config/gcloud/
+credentials/
+credentials.json
+application_default_credentials.json
+*-credentials.json
+*-service-account.json
+*.pem
+*.key
+runs/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ruff_cache/
+
+# Populated by harness2-setup; only the tracked notices stay in git.
+dependencies/*
+!dependencies/ASSETS.json
+!dependencies/PINNED.md
+!dependencies/README.md

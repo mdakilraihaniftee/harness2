@@ -96,6 +96,31 @@ harness2-demo --output runs/demo --k 2
 The local demo runs both recursion modes with deterministic editors and real
 Python executions. It requires no model credentials.
 
+[`examples/quickstart.py`](examples/quickstart.py) drives the same workflow from
+Python, prints each adopted harness diff and lesson, and includes a template
+adapter for plugging in new tasks:
+
+```bash
+python examples/quickstart.py demo              # built-in ledger demo
+python examples/quickstart.py custom            # new task family, scripted editor
+python examples/quickstart.py custom --live     # real improver model from .env
+```
+
+For development setup, tests, and what remains to enable live runs, see the
+[development guide](docs/DEVELOPMENT.md). To check model configuration and then
+try a small inference using the configured executor model:
+
+```bash
+python examples/infer.py --check-only           # no model call
+python examples/infer.py --prompt "What is 17 + 25? Reply with just the number."
+```
+
+The inference script needs the model configuration and credentials below. It
+saves its response and audit files under `runs/inference/`.
+
+For an audited one-task reproduction with baseline evaluation and isolation
+checks, use the [LAB reproduction procedure](docs/REPRODUCE_LAB.md).
+
 For model-backed benchmarks, install **Node.js 20+, the Google Cloud CLI**, and
 the [benchmark dependencies](docs/SETUP.md#requirements). LAB needs Pandoc and
 Poppler; WorkBuddy-Bench needs Docker. Then configure your models:
