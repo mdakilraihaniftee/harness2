@@ -21,11 +21,14 @@ judge/report read them back.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
+from .. import config
 from ..core import library as LIB
 from ..core import schedule as SCHED
-from ..core.spec import BenchmarkAdapter
+from ..core.spec import BenchmarkAdapter, ChannelSpec
+from ..model_config import RunModelConfig, resolve_run_model_config
 
 BENCHES = ("jb", "wb", "lab")
 WB_SUBSETS = ("office", "web", "code")
@@ -43,7 +46,11 @@ class HelpFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescript
 
 
 def make_adapter(
-    bench: str, subset: str | None, substrate: str, split_file: Path | None = None
+    bench: str,
+    subset: str | None,
+    substrate: str,
+    split_file: Path | None = None,
+    run_config: RunModelConfig | None = None,
 ) -> BenchmarkAdapter:
     """The one place a CLI turns (--bench, --subset, --substrate) into an adapter."""
     if bench not in BENCHES:
@@ -51,20 +58,120 @@ def make_adapter(
     if substrate not in SUBSTRATES:
         raise ValueError(f"unknown substrate {substrate!r}; expected one of {SUBSTRATES}")
     if bench == "wb":
+        if run_config and (
+            run_config.solver.provider != "google-vertex"
+            or (run_config.judge and run_config.judge.provider != "google-vertex")
+        ):
+            raise config.ConfigError(
+                "WorkBuddy's installed Harbor model route currently supports Vertex only; "
+                "use JobBench/LAB for other providers or configure and test a Harbor model adapter"
+            )
         if subset not in WB_SUBSETS:
             raise ValueError(f"--bench wb needs --subset from {WB_SUBSETS}, got {subset!r} ")
         from ..benchmarks.workbuddy import WbAdapter
 
-        return WbAdapter(subset, substrate=substrate, split_file=split_file)
+        adapter = WbAdapter(
+            subset,
+            substrate=substrate,
+            split_file=split_file,
+            solver_model=(run_config.solver.runtime_id(run_config.harness) if run_config else None),
+            solver_spec=(run_config.solver if run_config else None),
+            judge_model=(judge_runtime_id(run_config, "wb") if run_config else None),
+            judge_spec=(run_config.judge if run_config else None),
+        )
+        return _configure_adapter(adapter, run_config)
     if subset:
         raise ValueError(f"--subset applies to --bench wb only, got {subset!r} for {bench}")
     if bench == "jb":
         from ..benchmarks.jobbench import JobBenchAdapter
 
-        return JobBenchAdapter(substrate=substrate, split_file=split_file)
+        adapter = JobBenchAdapter(
+            substrate=substrate,
+            split_file=split_file,
+            solver_model=(run_config.solver.runtime_id(run_config.harness) if run_config else None),
+            solver_spec=(run_config.solver if run_config else None),
+            judge_model=(judge_runtime_id(run_config, "jb") if run_config else None),
+            judge_spec=(run_config.judge if run_config else None),
+        )
+        return _configure_adapter(adapter, run_config)
     from ..benchmarks.lab import LabAdapter
 
-    return LabAdapter(substrate=substrate, split_file=split_file)
+    adapter = LabAdapter(
+        substrate=substrate,
+        split_file=split_file,
+        model=(run_config.solver.runtime_id(run_config.harness) if run_config else None),
+        solver_spec=(run_config.solver if run_config else None),
+        judge_model=(judge_runtime_id(run_config, "lab") if run_config else None),
+        judge_spec=(run_config.judge if run_config else None),
+    )
+    return _configure_adapter(adapter, run_config)
+
+
+def judge_runtime_id(run_config: RunModelConfig, bench: str) -> str:
+    """Map the independent judge role to each external evaluator's identifier convention."""
+    spec = run_config.judge
+    if spec is None:
+        return ""
+    if bench == "lab" and spec.provider == "google-vertex":
+        return f"vertex/{spec.model_id}"
+    if bench in ("jb", "wb") and spec.provider == "google-vertex":
+        return f"google/{spec.model_id}"
+    return spec.model_id if spec.provider in ("openai", "custom") else spec.ref
+
+
+def _configure_adapter(adapter: BenchmarkAdapter, run_config: RunModelConfig | None):
+    if run_config is None:
+        return adapter
+    proposer = ChannelSpec(
+        "opencode",
+        run_config.improver.runtime_id("opencode"),
+        effort="high",
+        model_spec=run_config.improver,
+    )
+    selector = ChannelSpec(
+        "opencode",
+        run_config.selector.runtime_id("opencode"),
+        effort="high",
+        model_spec=run_config.selector,
+    )
+    root = adapter.spec.runs_root / run_config.boundary
+    adapter.spec = replace(
+        adapter.spec,
+        runs_root=root,
+        channels={"proposer": proposer, "selector": selector},
+    )
+    # LAB chooses a result root before its frozen BenchSpec is replaced.
+    if adapter.spec.name == "lab":
+        adapter._results_root = root / "results" / adapter.substrate.name
+    return adapter
+
+
+def resolve_model_args(args, *, require_judge: bool = False) -> RunModelConfig:
+    return resolve_run_model_config(
+        harness=getattr(args, "harness", None),
+        substrate=getattr(args, "substrate", None),
+        model=getattr(args, "model", None),
+        solver_model=getattr(args, "solver_model", None),
+        improver_model=getattr(args, "improver_model", None),
+        selector_model=getattr(args, "selector_model", None),
+        judge_model=getattr(args, "judge_model", None),
+        profile=getattr(args, "model_profile", None),
+        profiles_path=getattr(args, "model_profiles_file", None),
+        require_judge=require_judge,
+    )
+
+
+def legacy_compatible(run_config: RunModelConfig) -> bool:
+    """Whether a selected config has the same routes as the current legacy environment."""
+    try:
+        legacy = resolve_run_model_config(harness=run_config.harness, require_judge=True)
+    except config.ConfigError:
+        return False
+    return run_config.harness == legacy.harness and all(
+        (run_config.role(role).safe_dict() if run_config.role(role) else None)
+        == (legacy.role(role).safe_dict() if legacy.role(role) else None)
+        for role in ("solver", "improver", "selector", "judge")
+    )
 
 
 def runs_root_for(adapter: BenchmarkAdapter) -> Path:
@@ -102,9 +209,33 @@ def add_cell_args(p: argparse._ActionsContainer) -> None:
     )
     p.add_argument(
         "--substrate",
-        default="oc",
+        default=None,
         choices=SUBSTRATES,
-        help="task-executor substrate: oc (opencode) | cx (codex)",
+        help="legacy task-executor alias: oc | cx (default: profile, then oc)",
+    )
+    p.add_argument(
+        "--harness",
+        choices=("opencode", "codex", "oc", "cx"),
+        help="execution harness, independently selected from the model",
+    )
+
+
+def add_model_args(p: argparse._ActionsContainer) -> None:
+    p.add_argument("--model", help="convenience override for solver and improver")
+    p.add_argument("--solver-model", help="provider/model for task execution")
+    p.add_argument("--improver-model", help="provider/model for proposals and composition")
+    p.add_argument("--selector-model", help="provider/model for selection and reflection")
+    p.add_argument("--judge-model", help="independent provider/model benchmark judge")
+    p.add_argument("--model-profile", help="profile name from model_profiles.toml")
+    p.add_argument(
+        "--model-profiles-file",
+        type=Path,
+        help="alternate TOML profile file (default: HARNESS2_MODEL_PROFILES or repository file)",
+    )
+    p.add_argument(
+        "--print-config",
+        action="store_true",
+        help="print resolved secret-free model configuration and exit",
     )
 
 

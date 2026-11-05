@@ -40,6 +40,7 @@ from ..core import runmark as RM
 from ..core import tree as HT
 from ..core.selection import order_graded_first
 from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
+from ..model_config import ModelSpec, provider_environment
 from ..substrate import opencode as OC
 from ..substrate.base import Install, RunRequest
 from ..substrate.codex import CODEX_SURFACE, CodexSubstrate
@@ -498,6 +499,8 @@ def _job_yaml(
     ws: Path | None,
     k: int,
     jobs_dir_abs: Path,
+    solver_model: str = "",
+    judge_model: str = "",
 ) -> str:
     sel = "\n".join(f"    - {t}" for t in tasks)
     if substrate == "oc":
@@ -512,7 +515,7 @@ def _job_yaml(
         extra = f"harness_params_override:\n{hp_lines}\n"
     else:
         harness = _harness_cx()
-        hp = {"CODEX_MODEL": config.SOLVER_MODEL_CX}
+        hp = {"CODEX_MODEL": solver_model or config.SOLVER_MODEL_CX}
         if ws is not None:
             hp["WB_HARNESS_WS"] = str(ws.resolve())
         hp_block = ""
@@ -535,8 +538,8 @@ def _job_yaml(
             f"{hp_block}"
         )
     judge = (
-        f"llm_judge_override:\n  model: {subset.llm_judge_model}\n"
-        if subset.llm_judge_model
+        f"llm_judge_override:\n  model: {judge_model}\n"
+        if subset.llm_judge_model and judge_model
         else ""
     )
     head = (
@@ -590,6 +593,9 @@ def run_batch(
     done,
     need=None,
     timeout_s: int | None = None,
+    solver_model: str = "",
+    judge_model: str = "",
+    process_env=None,
 ) -> list[Path]:
     """Roll `tasks` k times each under harness workspace `ws`, returning the run dirs THIS
     invocation created. `done(task_id)` is the caller's skip predicate; `need(task_id)` is
@@ -613,12 +619,23 @@ def run_batch(
         yaml_path = config.wb_repo() / "configs" / "jobs" / f"{slug}.yaml"
         label_dir.mkdir(parents=True, exist_ok=True)
         yaml_path.write_text(
-            _job_yaml(subset, substrate, label, todo, ws, k, label_dir), encoding="utf-8"
+            _job_yaml(
+                subset,
+                substrate,
+                label,
+                todo,
+                ws,
+                k,
+                label_dir,
+                solver_model or config.SOLVER_MODEL_CX,
+                judge_model or subset.llm_judge_model,
+            ),
+            encoding="utf-8",
         )
 
         timeout_s = timeout_s or int((len(todo) * k / _conc(substrate)) * 3600 * 1.2 + 900)
         env = {
-            **os.environ,
+            **(process_env or os.environ),
             "NO_FORCE_BUILD": "1",
             "HARNESS2_WB_VERTEX_URL": config.VERTEX_OPENAI_URL + "/chat/completions",
         }
@@ -672,7 +689,15 @@ class WbAdapter:
     """One (subset, substrate) cell of WB-Bench. A different cell is a different instance."""
 
     def __init__(
-        self, subset: str = "office", *, substrate: str = "oc", split_file: Path | None = None
+        self,
+        subset: str = "office",
+        *,
+        substrate: str = "oc",
+        split_file: Path | None = None,
+        solver_model: str | None = None,
+        solver_spec: ModelSpec | None = None,
+        judge_model: str | None = None,
+        judge_spec: ModelSpec | None = None,
     ):
         self.split_file = split_file
         if subset not in SUBSETS:
@@ -687,6 +712,12 @@ class WbAdapter:
             if substrate == "oc"
             else CodexSubstrate(launcher=self._launch)
         )
+        self.solver_model = solver_model or (
+            config.SOLVER_MODEL_OC if substrate == "oc" else config.SOLVER_MODEL_CX
+        )
+        self.solver_spec = solver_spec
+        self.judge_model = judge_model or self.subset_info.llm_judge_model
+        self.judge_spec = judge_spec
 
     def tasks(self, split: str = "all") -> list[str]:
         return select(
@@ -738,9 +769,7 @@ class WbAdapter:
     def _cell_identity(self) -> dict:
         """What makes two rollouts of one label the same rollout, beyond the harness."""
         return {
-            "solver": config.SOLVER_MODEL_OC
-            if self.substrate.name == "oc"
-            else config.SOLVER_MODEL_CX,
+            "solver": self.solver_model,
             "oc_ver": config.WB_OC_HARNESS_VER,
             "connection": config.WB_MODEL_CONNECTION,
         }
@@ -798,6 +827,13 @@ class WbAdapter:
             done=lambda tid: _have(tid) >= k,
             need=lambda tid: k - _have(tid),
             timeout_s=req.timeout or None,
+            solver_model=self.solver_model,
+            judge_model=self.judge_model,
+            process_env=(
+                provider_environment(self.solver_spec, os.environ)
+                if self.solver_spec is not None
+                else os.environ
+            ),
         )
         fresh = [t for t in _trials_in(new_dirs, req.task_ref, self.subset) if _trial_finished(t)]
         return self._rank(fresh)

@@ -1,0 +1,7 @@
+{
+  "required_bundle": [
+    "A",
+    "B"
+  ],
+  "expected_utility": 1.0
+}

@@ -38,6 +38,7 @@ from ..core import runmark as RM
 from ..core import tree as HT
 from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
 from ..install import codex_config_error
+from ..model_config import ModelSpec, provider_environment
 from ..substrate.base import Install, RunRequest
 from ..substrate.codex import CodexSubstrate
 from ..substrate.opencode import OUTPUT_TOKEN_MAX, OpencodeSubstrate
@@ -629,6 +630,10 @@ class JobBenchAdapter:
         timeout: int | None = None,
         store_root: Path | None = None,
         split_file: Path | None = None,
+        solver_model: str | None = None,
+        solver_spec: ModelSpec | None = None,
+        judge_model: str | None = None,
+        judge_spec: ModelSpec | None = None,
     ):
         self.split_file = split_file
         self.spec = make_spec(substrate)
@@ -640,6 +645,12 @@ class JobBenchAdapter:
         )
         self.timeout = int(timeout or _DEFAULT_TIMEOUT[substrate])
         self.store = Path(store_root) if store_root else config.RUNS / "jb" / "dataset"
+        self.solver_model = solver_model or (
+            config.SOLVER_MODEL_OC if substrate == "oc" else config.SOLVER_MODEL_CX
+        )
+        self.solver_spec = solver_spec
+        self.judge_model = judge_model or config.JB_JUDGE_MODEL
+        self.judge_spec = judge_spec
 
     def tasks(self, split: str = "all") -> list[str]:
         return select(discover("jb"), split, self.split_file, benchmark="jb")
@@ -788,15 +799,20 @@ class JobBenchAdapter:
         self.substrate.preflight()
         render_dir = Path(tempfile.mkdtemp(prefix=f"hrender_{label}_"))
         render_opencode_tree(install.staging_dir, render_dir, _render_ctx(self.domain_of(task_id)))
+        base_env = (
+            provider_environment(self.solver_spec, os.environ)
+            if self.solver_spec is not None
+            else dict(os.environ)
+        )
         env = {
-            **os.environ,
+            **base_env,
             "TASK_IDS": task_id,
             "LABEL": label,
             "HARNESS_RENDER_DIR": str(render_dir),
             "AGENT_NAME": "",
             "TASKS_BASE_DIR": str(self.store),
             "OPENCODE_DIR": str(config.OPENCODE_DIR),
-            "MODEL_ID": config.SOLVER_MODEL_OC,
+            "MODEL_ID": self.solver_model,
             "TIMEOUT_PER_TASK": str(t),
             "MAX_RETRIES": "2",
             "MAX_CONCURRENT": "1",
@@ -812,7 +828,12 @@ class JobBenchAdapter:
         stale = codex_config_error()
         if stale is not None:
             raise RuntimeError(stale)
-        env = self.substrate.exec_env(os.environ, codex_home=codex_home)
+        base_env = (
+            provider_environment(self.solver_spec, os.environ)
+            if self.solver_spec is not None
+            else dict(os.environ)
+        )
+        env = self.substrate.exec_env(base_env, codex_home=codex_home)
         env.update(
             {
                 "HARNESS2_CODEX_BIN": str(Path(config.CODEX_DIST) / "codex"),
@@ -820,7 +841,7 @@ class JobBenchAdapter:
                 "LABEL": label,
                 "HARNESS_RENDER_DIR": str(install.staging_dir),
                 "TASKS_BASE_DIR": str(self.store),
-                "BENCHMARK_MODELS": config.SOLVER_MODEL_CX,
+                "BENCHMARK_MODELS": self.solver_model,
                 "MAX_CONCURRENT_PER_MODEL": "1",
                 "TIMEOUT_PER_TASK": str(t),
                 "VERTEX_PROXY_KEY": config.VERTEX_PROXY_KEY,
@@ -1008,7 +1029,7 @@ class JobBenchAdapter:
     def _details_candidates(self, task_id: str, label: str) -> tuple[Path | None, Path]:
         """(reporting judge, configured judge) detail files, in serving order."""
         er = self.store / task_id / "eval_result"
-        safe = config.JB_JUDGE_MODEL.split("/")[-1].replace(".", "-")
+        safe = self.judge_model.split("/")[-1].replace(".", "-")
         pattern = config.JB_REPORTING_JUDGE_DETAILS
         reporting = (er / pattern.format(label=label)) if pattern else None
         return (reporting, er / f"eval_{label}" / f"{safe}_judge.json")
@@ -1084,22 +1105,30 @@ class JobBenchAdapter:
                 flush=True,
             )
             return False
-        api_base = config.JB_JUDGE_API_BASE
+        api_base = (
+            self.judge_spec.base_url
+            if self.judge_spec and self.judge_spec.provider != "google-vertex"
+            else config.JB_JUDGE_API_BASE
+        )
         try:
-            token = (
-                config.JB_JUDGE_API_KEY
-                or subprocess.run(
+            explicit = (
+                os.environ.get(self.judge_spec.credential_env or "")
+                if self.judge_spec and self.judge_spec.provider != "google-vertex"
+                else config.JB_JUDGE_API_KEY
+            )
+            token = explicit
+            if not token and (self.judge_spec is None or self.judge_spec.provider == "google-vertex"):
+                token = subprocess.run(
                     ["gcloud", "auth", "application-default", "print-access-token"],
                     capture_output=True,
                     text=True,
                     timeout=60,
                 ).stdout.strip()
-            )
         except (subprocess.SubprocessError, OSError):
             token = ""
         if not token:
             print(
-                "  [jb] no Vertex access token (gcloud auth print-access-token); judge not run",
+                "  [jb] selected judge credential is unavailable; judge not run",
                 flush=True,
             )
             return False
@@ -1115,7 +1144,7 @@ class JobBenchAdapter:
             "--details-file",
             str(own),
             "--judge-model",
-            config.JB_JUDGE_MODEL,
+            self.judge_model,
             "--api-base",
             api_base,
             "--max-workers",
@@ -1128,7 +1157,11 @@ class JobBenchAdapter:
             label,
         ]
         env = {
-            **os.environ,
+            **(
+                provider_environment(self.judge_spec, os.environ)
+                if self.judge_spec is not None
+                else os.environ
+            ),
             "JUDGE_API_KEY": token,
             "JUDGE_REASONING_EFFORT": config.JB_JUDGE_REASONING_EFFORT,
             "VERTEXAI_LOCATION": config.VERTEX_REGION,

@@ -1,0 +1,74 @@
+[
+  {
+    "provider": "google-vertex",
+    "model_identifier": "google-vertex/gemini-3.5-flash",
+    "harness": "opencode",
+    "solver_supported": "PASS",
+    "improver_supported": "PASS",
+    "judge_supported": "PASS",
+    "credential_status": "PASS",
+    "runtime_status": "PASS",
+    "live_test_status": "PASS",
+    "limitations": "Saved composer sessions verify the existing route; no new paid call was made."
+  },
+  {
+    "provider": "openai",
+    "model_identifier": "env:HARNESS2_GPT_MODEL",
+    "harness": "opencode",
+    "solver_supported": "PASS",
+    "improver_supported": "PASS",
+    "judge_supported": "PASS",
+    "credential_status": "FAIL",
+    "runtime_status": "PASS",
+    "live_test_status": "NOT_TESTED",
+    "limitations": "Credential and provider-verified model ID are not configured."
+  },
+  {
+    "provider": "openrouter",
+    "model_identifier": "env:HARNESS2_QWEN_MODEL",
+    "harness": "opencode",
+    "solver_supported": "PASS",
+    "improver_supported": "PASS",
+    "judge_supported": "NOT_TESTED",
+    "credential_status": "FAIL",
+    "runtime_status": "PASS",
+    "live_test_status": "NOT_TESTED",
+    "limitations": "Credential and provider-reported Qwen ID are not configured."
+  },
+  {
+    "provider": "anthropic",
+    "model_identifier": "anthropic/<provider-verified-id>",
+    "harness": "opencode",
+    "solver_supported": "PASS",
+    "improver_supported": "PASS",
+    "judge_supported": "NOT_TESTED",
+    "credential_status": "FAIL",
+    "runtime_status": "PASS",
+    "live_test_status": "NOT_TESTED",
+    "limitations": "No direct Anthropic credential/model is configured."
+  },
+  {
+    "provider": "custom",
+    "model_identifier": "env:HARNESS2_CUSTOM_MODEL",
+    "harness": "opencode",
+    "solver_supported": "PASS",
+    "improver_supported": "PASS",
+    "judge_supported": "NOT_TESTED",
+    "credential_status": "FAIL",
+    "runtime_status": "PASS",
+    "live_test_status": "NOT_TESTED",
+    "limitations": "Endpoint must implement tool-capable OpenAI semantics; none is configured."
+  },
+  {
+    "provider": "custom",
+    "model_identifier": "configured Responses model",
+    "harness": "codex",
+    "solver_supported": "BLOCKED",
+    "improver_supported": "NOT_TESTED",
+    "judge_supported": "NOT_TESTED",
+    "credential_status": "NOT_TESTED",
+    "runtime_status": "BLOCKED",
+    "live_test_status": "NOT_TESTED",
+    "limitations": "Codex 0.144.6 is configured but its local binary is absent."
+  }
+]

@@ -22,6 +22,7 @@ import subprocess
 
 from . import config
 from .install import PATCHES, missing_runners
+from .model_config import credential_status
 from .substrate.opencode import OpencodeSubstrate
 
 
@@ -43,12 +44,28 @@ def check(adapter, *, judge=False) -> list[str]:
             errors.append(f"{label}: {type(exc).__name__}; see README.md")
             return False
 
-    for validate in (
-        lambda: config.validate_models(judge=judge),
-        adapter.tasks,
-        OpencodeSubstrate().preflight,
-        adapter.preflight,
-    ):
+    solver_spec = getattr(adapter, "solver_spec", None)
+    judge_spec = getattr(adapter, "judge_spec", None)
+
+    def validate_selected_models():
+        if solver_spec is None:
+            config.validate_models(judge=judge)
+            return
+        for role, spec in (
+            ("solver", solver_spec),
+            ("improver", adapter.spec.channels["proposer"].model_spec),
+            ("selector", adapter.spec.channels["selector"].model_spec),
+            ("judge", judge_spec if judge else None),
+        ):
+            if spec is not None and credential_status(spec) == "FAIL":
+                needed = spec.credential_env or "Google Cloud project/ADC"
+                raise config.ConfigError(f"{needed} is required for the selected {role} model")
+
+    validators = [validate_selected_models, adapter.tasks]
+    if adapter.substrate.name == "oc":
+        validators.append(OpencodeSubstrate().preflight)
+    validators.append(adapter.preflight)
+    for validate in validators:
         try:
             validate()
         except (OSError, RuntimeError, ValueError) as exc:
@@ -76,9 +93,21 @@ def check(adapter, *, judge=False) -> list[str]:
     if not (config.OPENCODE_DIR / "node_modules").is_dir():
         errors.append(f"OpenCode dependencies missing; run harness2-setup {bench}")
 
-    if any(
-        m.startswith("google-vertex") for m in (config.SOLVER_MODEL_OC, config.IMPROVER_MODEL)
-    ) or (judge and (bench == "wb" or config.JUDGE_MODEL.startswith(("claude", "gemini")))):
+    selected_specs = [
+        solver_spec,
+        adapter.spec.channels["proposer"].model_spec,
+        adapter.spec.channels["selector"].model_spec,
+        judge_spec if judge else None,
+    ]
+    uses_vertex = (
+        any(spec and spec.provider == "google-vertex" for spec in selected_specs)
+        if solver_spec is not None
+        else any(
+            m.startswith("google-vertex")
+            for m in (config.SOLVER_MODEL_OC, config.IMPROVER_MODEL)
+        )
+    )
+    if uses_vertex:
         probe(
             "Google Application Default Credentials",
             ["gcloud", "auth", "application-default", "print-access-token"],
@@ -101,17 +130,23 @@ def check(adapter, *, judge=False) -> list[str]:
                 "import pandas, openpyxl, docx, mammoth, pdfplumber, pptx, openai",
             ],
         )
-        if not config.JB_JUDGE_API_BASE:
+        judge_base = (
+            judge_spec.base_url
+            if judge_spec and judge_spec.provider != "google-vertex"
+            else config.JB_JUDGE_API_BASE
+        )
+        if not judge_base:
             errors.append(
                 "Set GOOGLE_CLOUD_PROJECT or HARNESS2_JUDGE_BASE_URL for JobBench judging"
             )
         if (
-            config.JUDGE_MODEL
-            and not config.JB_JUDGE_API_KEY
-            and not config.JUDGE_MODEL.startswith("gemini")
+            judge_spec
+            and judge_spec.provider != "google-vertex"
+            and credential_status(judge_spec) == "FAIL"
         ):
             errors.append(
-                "A non-Gemini JobBench judge requires HARNESS2_JUDGE_BASE_URL and HARNESS2_JUDGE_API_KEY"
+                "A non-Vertex JobBench judge requires its provider credential and an explicit "
+                "base URL (profile base_url/base_url_env or the provider endpoint variable)"
             )
     elif bench == "wb":
         probe("Docker daemon", ["docker", "info", "--format", "{{.ServerVersion}}"])
@@ -132,8 +167,8 @@ def check(adapter, *, judge=False) -> list[str]:
             cwd=repo,
         )
         for role, expected in (
-            ("solver", config.SOLVER_MODEL_OC.removeprefix("google-vertex/")),
-            ("judge", config.JUDGE_MODEL),
+            ("solver", getattr(adapter, "solver_model", config.SOLVER_MODEL_OC).removeprefix("google-vertex/")),
+            ("judge", getattr(adapter, "judge_model", config.JUDGE_MODEL).removeprefix("google/")),
         ):
             path = repo / "configs/models/harness2" / f"{role}.yaml"
             try:

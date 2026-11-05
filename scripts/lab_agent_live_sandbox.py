@@ -130,6 +130,7 @@ def main() -> int:
         "XDG_STATE_HOME": str(workspace / ".ocstate"),
         "NODE_EXTRA_CA_CERTS": "/etc/harness2-gateway-ca.pem",
         "HARNESS2_VERTEX_UNIX_SOCKET": "/run/harness2-gateway/vertex.sock",
+        "GOOGLE_VERTEX_API_KEY": "harness2-gateway",
         "OPENCODE_MODELS_PATH": "/etc/harness2-models.json",
         "OPENCODE_DISABLE_MODELS_FETCH": "1",
     }

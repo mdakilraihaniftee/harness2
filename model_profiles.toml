@@ -1,0 +1,34 @@
+# Model identifiers in the existing Vertex profile were exercised by this checkout's saved
+# research runs. Other providers intentionally use environment indirection: set only IDs that
+# the provider/runtime actually reports for your account. Credentials remain separate.
+
+[profiles.existing_vertex]
+harness = "opencode"
+solver = "google-vertex/gemini-3.5-flash"
+improver = "google-vertex/gemini-3.5-flash"
+judge = "google-vertex/gemini-3.5-flash"
+
+[profiles.gpt]
+harness = "opencode"
+solver = "env:HARNESS2_GPT_MODEL"
+improver = "env:HARNESS2_GPT_MODEL"
+judge = "env:HARNESS2_GPT_JUDGE_MODEL"
+
+[profiles.qwen]
+harness = "opencode"
+solver = "env:HARNESS2_QWEN_MODEL"
+improver = "env:HARNESS2_QWEN_MODEL"
+judge = "env:HARNESS2_QWEN_JUDGE_MODEL"
+
+[profiles.mixed]
+harness = "opencode"
+solver = "env:HARNESS2_QWEN_MODEL"
+improver = "env:HARNESS2_GPT_MODEL"
+judge = "env:HARNESS2_GPT_JUDGE_MODEL"
+
+[profiles.custom_local]
+harness = "opencode"
+solver = "env:HARNESS2_CUSTOM_MODEL"
+improver = "env:HARNESS2_CUSTOM_MODEL"
+base_url_env = "HARNESS2_CUSTOM_BASE_URL"
+credential_env = "HARNESS2_CUSTOM_API_KEY"

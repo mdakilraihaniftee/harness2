@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from .. import config
+from ..model_config import ModelSpec
 from .tree import SurfaceSpec
 
 ModelId = str
@@ -42,6 +43,7 @@ class ChannelSpec:
     effort: str = "high"
     steps: int = 120
     timeout: int = 3600
+    model_spec: ModelSpec | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in CHANNELS:

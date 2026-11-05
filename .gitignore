@@ -18,6 +18,10 @@ __pycache__/
 *.egg-info/
 .ruff_cache/
 
+# Generated research runs and machine outputs. Keep research source, fixtures, and reports.
+research_pilots/results/
+research_pilots/offline_bench/results/
+
 # Populated by harness2-setup; only the tracked notices stay in git.
 dependencies/*
 !dependencies/ASSETS.json

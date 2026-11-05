@@ -30,6 +30,7 @@ from pathlib import Path
 
 from ..core import report as R
 from ..core import schedule as SCHED
+from ..harness_registry import substrate_for
 from . import _common as C
 from .judge import _load_rows
 
@@ -60,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="harness2.cli.report", description=__doc__, formatter_class=C.HelpFormatter
     )
     C.add_cell_args(p.add_argument_group("cell"))
+    C.add_model_args(p.add_argument_group("model routing"))
     g = p.add_argument_group("run identity (names the sweeps)")
     g.add_argument("--k", default="1", help="comma list of scales to report, e.g. 1,2,3")
     g.add_argument(
@@ -78,10 +80,26 @@ def main(argv: list[str] | None = None) -> int:
     if not ks:
         raise SystemExit("--k named no scale")
 
-    adapter = C.make_adapter(args.bench, args.subset, args.substrate)
+    model_config = C.resolve_model_args(args, require_judge=True)
+    if args.print_config:
+        print(
+            json.dumps(
+                {**model_config.safe_dict(), "fingerprint": model_config.fingerprint}, indent=2
+            )
+        )
+        return 0
+    substrate = substrate_for(model_config.harness)
+    adapter = C.make_adapter(args.bench, args.subset, substrate, run_config=model_config)
+    legacy_adapter = C.make_adapter(args.bench, args.subset, substrate)
     rows, fell_back, usd = [], {}, {}
     for k in ks:
         ns_dir = C.runs_root_for(adapter) / C.summary_namespace(adapter, k, seed=args.seed)
+        if not ns_dir.is_dir():
+            legacy = C.runs_root_for(legacy_adapter) / C.summary_namespace(
+                legacy_adapter, k, seed=args.seed
+            )
+            if legacy.is_dir() and C.legacy_compatible(model_config):
+                ns_dir = legacy
         judged = ns_dir / "judged.json"
         got = _load_rows(judged)
         if not got:

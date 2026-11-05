@@ -35,6 +35,7 @@ from .. import config
 from ..core import runmark as RM
 from ..core import tree as HT
 from ..core.spec import BenchPrompts, BenchSpec, resolve_channel_model
+from ..model_config import ModelSpec, provider_environment
 from ..substrate.base import Install, RunRequest
 from ..substrate.codex import CODEX_SURFACE, CodexSubstrate
 from ..substrate.opencode import OPENCODE_SURFACE, OpencodeSubstrate
@@ -386,9 +387,10 @@ except Exception as exc:
 """
 
 
-def _lab_env() -> dict[str, str]:
+def _lab_env(base_env=None) -> dict[str, str]:
+    source = os.environ if base_env is None else base_env
     return {
-        **os.environ,
+        **source,
         "PYTHONPATH": str(config.lab_repo()),
         "PATH": f"{config.LAB_PYTHON.parent}:{config.BUN.parent}:{config.CODEX_DIST}/codex-path:"
         + os.environ.get("PATH", ""),
@@ -512,6 +514,8 @@ class LabAdapter:
         skill_mode: str = "native",
         solver_effort: str = "high",
         judge_model: str = JUDGE_MODEL,
+        solver_spec: ModelSpec | None = None,
+        judge_spec: ModelSpec | None = None,
         split_file: Path | None = None,
     ):
         self.split_file = split_file
@@ -531,6 +535,8 @@ class LabAdapter:
         self.skill_mode = skill_mode
         self.solver_effort = solver_effort
         self.judge_model = judge_model
+        self.solver_spec = solver_spec
+        self.judge_spec = judge_spec
         self._deliverables: dict[str, dict[str, str]] = {}
 
     def tasks(self, split: str = "all") -> list[str]:
@@ -673,7 +679,11 @@ class LabAdapter:
                 run_detached(
                     cmd,
                     cwd=config.lab_repo(),
-                    env=_lab_env(),
+                    env=_lab_env(
+                        provider_environment(self.solver_spec, os.environ)
+                        if self.solver_spec is not None
+                        else os.environ
+                    ),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -708,7 +718,11 @@ class LabAdapter:
             ]
 
             env = {
-                **_lab_env(),
+                **_lab_env(
+                    provider_environment(self.solver_spec, os.environ)
+                    if self.solver_spec is not None
+                    else os.environ
+                ),
                 "ADAPT_LABCX_CODEX_BIN": str(Path(config.CODEX_DIST) / "codex"),
                 "ADAPT_LABCX_RESULTS": str(self._results_root),
                 "ADAPT_LABCX_SCRATCH": os.environ.get("ADAPT_LABCX_SCRATCH")
@@ -982,7 +996,11 @@ class LabAdapter:
                     run_detached(
                         cmd,
                         cwd=config.lab_repo(),
-                        env=_lab_env(),
+                        env=_lab_env(
+                            provider_environment(self.judge_spec, os.environ)
+                            if self.judge_spec is not None
+                            else os.environ
+                        ),
                         stdin=subprocess.DEVNULL,
                         stdout=out,
                         stderr=subprocess.STDOUT,

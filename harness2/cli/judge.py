@@ -37,6 +37,7 @@ from pathlib import Path
 
 from .. import config
 from ..core import judge as J
+from ..harness_registry import substrate_for
 from . import _common as C
 
 _DERIVED = ("frac", "graded")
@@ -152,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="harness2.cli.judge", description=__doc__, formatter_class=C.HelpFormatter
     )
     C.add_cell_args(p.add_argument_group("cell"))
+    C.add_model_args(p.add_argument_group("model routing"))
     C.add_run_identity_args(p.add_argument_group("run identity (names the sweep)"))
     p.add_argument(
         "--bases",
@@ -162,17 +164,39 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     modes = C.parse_modes(args.modes)
 
-    config.validate_models(judge=True)
-    adapter = C.make_adapter(args.bench, args.subset, args.substrate)
+    model_config = C.resolve_model_args(args, require_judge=True)
+    if args.print_config:
+        print(
+            json.dumps(
+                {**model_config.safe_dict(), "fingerprint": model_config.fingerprint}, indent=2
+            )
+        )
+        return 0
+    substrate = substrate_for(model_config.harness)
+    adapter = C.make_adapter(
+        args.bench, args.subset, substrate, run_config=model_config
+    )
     ns = C.summary_namespace(adapter, args.k, seed=args.seed)
     ns_dir = C.runs_root_for(adapter) / ns
     identity = ns_dir / "config.json"
-    if identity.is_file() and json.loads(identity.read_text()).get("judge") != config.JUDGE_MODEL:
-        raise SystemExit("Judge model changed for this experiment; choose a new HARNESS2_RUNS_DIR")
+    if identity.is_file():
+        recorded = json.loads(identity.read_text())
+        fingerprint = recorded.get("model_config_fingerprint")
+        if fingerprint and fingerprint != model_config.fingerprint:
+            raise SystemExit("Judge/model configuration changed; select the original profile")
+        if not fingerprint and recorded.get("judge") not in (None, config.JUDGE_MODEL):
+            raise SystemExit("Judge model changed for this legacy experiment")
     if not ns_dir.is_dir():
-        raise SystemExit(
-            f"nothing to judge: {ns_dir} does not exist — has the sweep `{ns}` run on this machine?"
-        )
+        # Read-only compatibility with pre-model-boundary layouts. New writes always use the
+        # fingerprint boundary and old directories are never renamed.
+        legacy_adapter = C.make_adapter(args.bench, args.subset, substrate)
+        legacy_dir = C.runs_root_for(legacy_adapter) / ns
+        if legacy_dir.is_dir() and C.legacy_compatible(model_config):
+            adapter, ns_dir = legacy_adapter, legacy_dir
+        else:
+            raise SystemExit(
+                f"nothing to judge: {ns_dir} does not exist — has the sweep `{ns}` run?"
+            )
     if args.bases:
         return judge_bases(adapter, ns_dir)
 

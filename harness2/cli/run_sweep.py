@@ -17,7 +17,8 @@
 Thin argparse over core.schedule.run_sweep. Costs money when run for real: each task is
 R=4k task-executor rollouts and P=3k improver sessions. `--dry-run` prints the exact
 (domain, task) stream and namespaces without creating a Proposer, touching a substrate or
-validating a model setting.
+checking credentials/model availability; model/profile syntax is still resolved so the printed
+namespace is the one a real run would use.
 
 A real run checks the judge before the first rollout, because the namespace records the
 judge model and `harness2-judge` refuses to grade it under a different one: discovering a
@@ -41,6 +42,7 @@ from pathlib import Path
 from .. import config
 from ..core import schedule
 from ..core.proposer import Proposer
+from ..harness_registry import substrate_for
 from . import _common as C
 
 
@@ -49,6 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="harness2.cli.run_sweep", description=__doc__, formatter_class=C.HelpFormatter
     )
     C.add_cell_args(p.add_argument_group("cell"))
+    C.add_model_args(p.add_argument_group("model routing"))
     C.add_run_identity_args(p.add_argument_group("run identity (enters the namespace)"))
     g = p.add_argument_group("run control")
     g.add_argument("--split", choices=("all", "train", "test"), default="all")
@@ -132,13 +135,29 @@ def _main(args: argparse.Namespace) -> int:
     if args.k < 1 or args.workers < 1:
         raise ValueError("--k and --workers must be positive")
     modes = C.parse_modes(args.modes)
+    model_config = C.resolve_model_args(args, require_judge=not args.dry_run)
+    substrate = substrate_for(model_config.harness)
+
+    if args.print_config:
+        print(
+            json.dumps(
+                {**model_config.safe_dict(), "fingerprint": model_config.fingerprint}, indent=2
+            )
+        )
+        return 0
 
     if args.dry_run:
         return _print_stream(
-            C.make_adapter(args.bench, args.subset, args.substrate, args.split_file), args, modes
+            C.make_adapter(
+                args.bench, args.subset, substrate, args.split_file, run_config=model_config
+            ),
+            args,
+            modes,
         )
 
-    adapter = C.make_adapter(args.bench, args.subset, args.substrate, args.split_file)
+    adapter = C.make_adapter(
+        args.bench, args.subset, substrate, args.split_file, run_config=model_config
+    )
     _stream_for(adapter, args)
     from ..preflight import require_ready
 
@@ -147,7 +166,7 @@ def _main(args: argparse.Namespace) -> int:
     runs_root = C.runs_root_for(adapter)
     library_root = C.library_root_for(adapter, args.k, seed=args.seed)
     summary_ns = C.summary_namespace(adapter, args.k, seed=args.seed)
-    _check_identity(adapter, args, runs_root / summary_ns)
+    _check_identity(adapter, args, runs_root / summary_ns, model_config)
     prop = Proposer(adapter.spec.channels["proposer"], audit_dir=runs_root / "_audit" / summary_ns)
 
     only = _csv(args.only_domains)
@@ -196,7 +215,8 @@ def _main(args: argparse.Namespace) -> int:
     print(
         f"next:   python3 -m harness2.cli.judge --bench {args.bench}"
         + (f" --subset {args.subset}" if args.subset else "")
-        + f" --substrate {args.substrate} --k {args.k}"
+        + f" --harness {model_config.harness} --k {args.k}"
+        + (f" --model-profile {args.model_profile}" if args.model_profile else "")
         + (f" --seed {args.seed}" if args.seed is not None else "")
         + f" --modes {args.modes}"
     )
@@ -206,17 +226,13 @@ def _main(args: argparse.Namespace) -> int:
     return 2 if failed else 0
 
 
-def _check_identity(adapter, args, namespace_dir: Path) -> None:
+def _check_identity(adapter, args, namespace_dir: Path, model_config) -> None:
     """Prevent a resumed run or library from silently mixing models or task partitions."""
     identity = {
         "method_version": config.METHOD_VERSION,
-        "executor": config.SOLVER_MODEL_OC if args.substrate == "oc" else config.SOLVER_MODEL_CX,
-        "improver": config.IMPROVER_MODEL,
-        "judge": config.JUDGE_MODEL,
-        "project": config.VERTEX_PROJECT,
-        "location": config.VERTEX_REGION,
-        "judge_endpoint": config.JB_JUDGE_API_BASE,
-        "endpoint": config.CODEX_BASE_URL if args.substrate == "cx" else "",
+        "model_config": model_config.safe_dict(),
+        "model_config_fingerprint": model_config.fingerprint,
+        "prompt_pack": adapter.spec.prompts.prompt_pack,
         "split": args.split,
         "tasks": _stream_for(adapter, args)[1],
         "max_tasks": args.max_tasks,

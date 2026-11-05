@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import config
+from ..model_config import parse_model_ref, provider_environment
 from .spec import ChannelSpec
 
 SYSTEM_ARG_MAX = 120_000
@@ -82,6 +83,7 @@ class Reply:
     error: str = ""
     audit: Path | None = None
     workspace: Path | None = None
+    usage: dict[str, int | float] = field(default_factory=dict)
 
     def __bool__(self) -> bool:
         return self.ok
@@ -103,7 +105,19 @@ class Proposer:
             raise ValueError("Set HARNESS2_IMPROVER_MODEL before starting model sessions")
 
     def env(self) -> dict[str, str]:
-        e = {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
+        model_spec = self.spec.model_spec
+        if model_spec is None and self.spec.kind == "opencode":
+            try:
+                model_spec = parse_model_ref(self.spec.model)
+            except config.ConfigError:
+                # Backward-compatible escape hatch for deterministic/custom Proposer test
+                # channels. CLI-resolved real runs always carry a validated model_spec.
+                model_spec = None
+        e = (
+            provider_environment(model_spec, os.environ)
+            if model_spec is not None
+            else {k: v for k, v in os.environ.items() if k not in _DROP_ENV}
+        )
         if self.spec.kind == "claude_cli":
             e.update(
                 {
@@ -113,7 +127,7 @@ class Proposer:
                     "ANTHROPIC_MODEL": self.spec.model,
                 }
             )
-        else:
+        elif model_spec is None or model_spec.provider == "google-vertex":
             e.update(
                 {
                     "GOOGLE_VERTEX_PROJECT": self.project,
@@ -150,6 +164,7 @@ class Proposer:
         tries = max(1, int(self.attempts if max_attempts is None else max_attempts))
         last = ""
         spent_usd = 0.0
+        usage: dict[str, int | float] = {}
         t0 = time.time()
         for attempt in range(1, tries + 1):
             if attempt > 1:
@@ -159,10 +174,15 @@ class Proposer:
                 if context_dir and Path(context_dir).is_dir():
                     shutil.copytree(context_dir, tmp / "context", dirs_exist_ok=True)
                 with _SEM if _SEM is not None else contextlib.nullcontext():
-                    text, cost, err = (
+                    outcome = (
                         self._claude_cli if self.spec.kind == "claude_cli" else self._opencode
                     )(tmp, mission, system, wall)
+                    text, cost, err = outcome[:3]
+                    got_usage = outcome[3] if len(outcome) > 3 else {}
                 spent_usd += cost
+                for key, value in got_usage.items():
+                    if isinstance(value, (int, float)):
+                        usage[key] = usage.get(key, 0) + value
                 if not text.strip():
                     last = err or "empty reply"
                     continue
@@ -174,6 +194,7 @@ class Proposer:
                     wall_s=round(time.time() - t0, 1),
                     attempts=attempt,
                     channel=self.spec.kind,
+                    usage=usage,
                 )
                 if harvest:
                     r.workspace = self._harvest(tmp, harvest, label, cache_key)
@@ -198,6 +219,7 @@ class Proposer:
             channel=self.spec.kind,
             error=last,
             cost_usd=spent_usd,
+            usage=usage,
         )
         self._calls.append(r)
         self._write_audit(r, mission, system, cache_key)
@@ -209,7 +231,7 @@ class Proposer:
 
     def _claude_cli(
         self, cwd: Path, mission: str, system: str, wall: int
-    ) -> tuple[str, float, str]:
+    ) -> tuple[str, float, str, dict[str, int | float]]:
         cli = shutil.which("claude") or "claude"
         cmd = [
             cli,
@@ -248,9 +270,16 @@ class Proposer:
             text = ""
         elif p.returncode != 0 and not text.strip():
             err = f"rc={p.returncode}: {(p.stderr or '')[-300:]}"
-        return text, float(payload.get("total_cost_usd") or 0.0), err
+        usage = {
+            str(key): value
+            for key, value in (payload.get("usage") or {}).items()
+            if isinstance(value, (int, float))
+        }
+        return text, float(payload.get("total_cost_usd") or 0.0), err, usage
 
-    def _opencode(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
+    def _opencode(
+        self, cwd: Path, mission: str, system: str, wall: int
+    ) -> tuple[str, float, str, dict[str, int | float]]:
         (cwd / "MISSION.md").write_text(
             (f"{system}\n\n---\n\n" if system else "") + mission, encoding="utf-8"
         )
@@ -301,14 +330,15 @@ class Proposer:
             timeout=wall,
         )
         cost = _opencode_cost(p.stdout)
+        usage = _opencode_usage(p.stdout)
         ans = out / "answer.md"
         if ans.is_file() and ans.read_text(errors="replace").strip():
-            return ans.read_text(errors="replace"), cost, ""
+            return ans.read_text(errors="replace"), cost, "", usage
         text, err = _opencode_stdout(p.stdout)
         if text.strip():
-            return text, cost, ""
+            return text, cost, "", usage
         tail = _strip_oc_banner(p.stderr or "").strip()[-300:]
-        return "", cost, f"rc={p.returncode}: {err or tail or 'empty reply'}"
+        return "", cost, f"rc={p.returncode}: {err or tail or 'empty reply'}", usage
 
     def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:
         """Copy `tmp/<sub>` somewhere durable before the session directory is removed."""
@@ -378,6 +408,8 @@ class Proposer:
                     "attempts": r.attempts,
                     "wall_s": r.wall_s,
                     "cost_usd": r.cost_usd,
+                    "usage": r.usage,
+                    "model_calls": r.attempts,
                     "error": r.error,
                 },
                 indent=2,
@@ -502,6 +534,41 @@ def _opencode_cost(stdout: str) -> float:
             if isinstance(c, (int, float)):
                 total += float(c)
     return round(total, 6)
+
+
+def _opencode_usage(stdout: str) -> dict[str, int | float]:
+    """Sum raw provider counters without assuming that token categories are disjoint."""
+    totals: dict[str, int | float] = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "model_steps": 0,
+    }
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        part = _obj(event, "part")
+        if (part.get("type") or event.get("type")) not in ("step-finish", "step_finish"):
+            continue
+        totals["model_steps"] += 1
+        tokens = _obj(part, "tokens")
+        cache = _obj(tokens, "cache")
+        for source, target in (
+            (tokens.get("input"), "input_tokens"),
+            (tokens.get("output"), "output_tokens"),
+            (tokens.get("reasoning"), "reasoning_tokens"),
+            (cache.get("read"), "cache_read_tokens"),
+            (cache.get("write"), "cache_write_tokens"),
+        ):
+            if isinstance(source, (int, float)):
+                totals[target] += source
+    return totals
 
 
 def _call_fingerprint(label: str, mission: str, system: str, context_dir: Path | str | None) -> str:
