@@ -21,6 +21,12 @@ __pycache__/
 # Generated research runs and machine outputs. Keep research source, fixtures, and reports.
 research_pilots/results/
 research_pilots/offline_bench/results/
+research_pilots/phase4/contexts/
+research_pilots/phase4/results/
+research_pilots/phase5/results/
+research_pilots/phase5/traces/
+research_pilots/phase6/results/
+research_pilots/phase6/traces/
 
 # Populated by harness2-setup; only the tracked notices stay in git.
 dependencies/*

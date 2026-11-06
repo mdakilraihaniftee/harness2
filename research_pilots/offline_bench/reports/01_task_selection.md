@@ -6,12 +6,12 @@ inspection, so no replacement was made.
 
 | Benchmark | Task ID | Domain | Classification | Source files | Requested deliverable examples | Prior rollout |
 |---|---|---|---|---:|---|---|
-| jb | `data_entry_keyers/task1` | data_entry_keyers | NATIVE_DETERMINISTIC | 16 | Compliance_Checklist.xlsx, Customer_Master_List.csv | no |
-| jb | `secretaries_and_administrative_assistants_except_legal_medical_and_executive/task1` | secretaries_and_administrative_assistants_except_legal_medical_and_executive | NATIVE_DETERMINISTIC | 7 | Donor_Database_Template.xlsx, Heartland_Donor_Database_Q4_Reconciled.xlsx | no |
-| jb | `purchasing_agents_except_wholesale_retail_and_farm_products/task2` | purchasing_agents_except_wholesale_retail_and_farm_products | NATIVE_DETERMINISTIC | 7 | bid_evaluation_matrix_template.xlsx, department_requisition.xlsx | no |
-| jb | `sociology_teachers_postsecondary/task1` | sociology_teachers_postsecondary | NATIVE_DETERMINISTIC | 5 | Effective_Advising_Practice_Guide.pdf, Holistic_Intervention_Plan.docx | no |
-| jb | `court_clerks/task1` | court_clerks | NATIVE_DETERMINISTIC | 6 | Arkansas_Sentencing_Order_Form.pdf, Defense_Plea_Memo_Simmons.pdf | no |
-| jb | `financial_managers_branch_or_department/task2` | financial_managers_branch_or_department | NATIVE_DETERMINISTIC | 4 | Enhanced Quarterly Risk Report (Excel .xlsx, loan_risk_rating_sheet.xls | no |
+| jb | `data_entry_keyers/task1` | data_entry_keyers | DERIVED_CONTROLLED | 16 | (format-derived) | no |
+| jb | `secretaries_and_administrative_assistants_except_legal_medical_and_executive/task1` | secretaries_and_administrative_assistants_except_legal_medical_and_executive | NATIVE_DETERMINISTIC | 7 | Heartland_Donor_Database_Q4_Reconciled.xlsx, Volunteer_Orientation_Attendance_Dec16.xlsx | no |
+| jb | `purchasing_agents_except_wholesale_retail_and_farm_products/task2` | purchasing_agents_except_wholesale_retail_and_farm_products | DERIVED_CONTROLLED | 7 | (format-derived) | no |
+| jb | `sociology_teachers_postsecondary/task1` | sociology_teachers_postsecondary | NATIVE_DETERMINISTIC | 5 | SOCI201_EarlyAlert_Week10.xlsx, Holistic_Intervention_Plan.docx | no |
+| jb | `court_clerks/task1` | court_clerks | NATIVE_DETERMINISTIC | 6 | pre_entry_audit.csv, fee_reconciliation.csv | no |
+| jb | `financial_managers_branch_or_department/task2` | financial_managers_branch_or_department | DERIVED_CONTROLLED | 4 | (format-derived) | no |
 | lab | `bankruptcy-restructuring/draft-restructuring-support-agreement` | bankruptcy-restructuring | NATIVE_DETERMINISTIC | 8 | restructuring-support-agreement.docx | no |
 | lab | `intellectual-property/draft-responses-to-discovery-requests` | intellectual-property | NATIVE_DETERMINISTIC | 8 | interrogatory-responses.docx, rfp-responses.docx | no |
 | lab | `trusts-estates-private-client/draft-motion-for-temporary-orders` | trusts-estates-private-client | NATIVE_DETERMINISTIC | 7 | motion-for-temporary-orders.docx | no |

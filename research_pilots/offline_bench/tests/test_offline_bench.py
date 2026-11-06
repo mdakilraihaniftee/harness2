@@ -88,10 +88,23 @@ class OfflineBenchTests(unittest.TestCase):
                 worlds["GENUINE_SHIFT"]["visible_sha256"],
                 worlds["EVIDENCE_DEFECT"]["visible_sha256"],
             )
-            self.assertEqual(
-                worlds["GENUINE_SHIFT"]["policy_decisions"],
-                worlds["EVIDENCE_DEFECT"]["policy_decisions"],
-            )
+            # Initial actions must match for byte-identical inputs. A permitted independent
+            # diagnostic can then differ by world and legitimately change the final action;
+            # correctness is joined from hidden state only after the final decision.
+            left = worlds["GENUINE_SHIFT"]["policy_decisions"]
+            right = worlds["EVIDENCE_DEFECT"]["policy_decisions"]
+            for policy in left:
+                self.assertEqual(left[policy]["initial_decision"], right[policy]["initial_decision"])
+                self.assertEqual(
+                    left[policy]["diagnostic_selected"], right[policy]["diagnostic_selected"]
+                )
+                self.assertEqual(
+                    left[policy]["diagnostic_queries"], right[policy]["diagnostic_queries"]
+                )
+                if left[policy]["diagnostic_queries"] == 0:
+                    self.assertEqual(
+                        left[policy]["final_decision"], right[policy]["final_decision"]
+                    )
         self.assertEqual(same, self.pave["observationally_indistinguishable_pairs"])
         self.assertGreater(same, 0)
 

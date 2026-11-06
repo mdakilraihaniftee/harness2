@@ -2,7 +2,7 @@
 
 ## Status
 
-**PASS — zero-inference execution is available.** Git revision `5e1f7913b6f0d61fe165a84a3f0a2e946b01c720`, branch `main`,
+**PASS — zero-inference execution is available.** Git revision `322b6f933f3948c9bfeaa85613c55dcc6d602bab`, branch `main`,
 selection seed `17`. Installed task discovery returned exactly **1,143 LAB** and
 **65 JobBench** tasks without launching a solver or judge.
 

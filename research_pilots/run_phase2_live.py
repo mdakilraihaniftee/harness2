@@ -39,7 +39,7 @@ LIVE = ROOT / "research_pilots/runs/phase2/live"
 RESULTS = ROOT / "research_pilots/results/phase2/live"
 
 
-def install_trace_launcher(launcher: Path) -> None:
+def install_trace_launcher(launcher: Path, telemetry: Path | None = None) -> None:
     actual_bun = config.BUN
     wrapper = LIVE / "instrumented-bun"
     args = [
@@ -50,7 +50,7 @@ def install_trace_launcher(launcher: Path) -> None:
         "--bun",
         str(actual_bun),
         "--telemetry",
-        str(LIVE / "agent-traces"),
+        str(telemetry or LIVE / "agent-traces"),
         "--",
     ]
     wrapper.parent.mkdir(parents=True, exist_ok=True)
@@ -133,8 +133,14 @@ def _raw_reply(prop: CappedManifestProposer) -> str:
     return replies[-1].text if replies else ""
 
 
-def cite_e1(budget: LiveBudget, steps: int, model_spec: ModelSpec) -> dict:
-    experiment = "cite_e1_compact"
+def cite_e1(
+    budget: LiveBudget,
+    steps: int,
+    model_spec: ModelSpec,
+    *,
+    experiment: str = "cite_e1_compact",
+    phase: int = 2,
+) -> dict:
     root = LIVE / experiment
     base, candidates = cite_candidates()
     trees = {"base1": base, "inv1": candidates["A"], "dom1": candidates["B"]}
@@ -162,10 +168,11 @@ def cite_e1(budget: LiveBudget, steps: int, model_spec: ModelSpec) -> dict:
         steps=steps,
         model_spec=model_spec,
     )
+    job = prompts.aggregate(resolve_prompts(adapter, TASK_CITE), OPENCODE_SURFACE, k=1)
     stage = _run_stage(
         label=experiment,
         dim="AGG",
-        job=prompts.aggregate(resolve_prompts(adapter, TASK_CITE), OPENCODE_SURFACE, k=1),
+        job=job,
         fallback=base,
         adapter=adapter,
         prop=prop,
@@ -178,6 +185,7 @@ def cite_e1(budget: LiveBudget, steps: int, model_spec: ModelSpec) -> dict:
         decisions={"inv1": "controlled edit A", "dom1": "controlled edit B"},
     )
     reply = _raw_reply(prop)
+    transport_reply = prop.manifest.replies[-1] if prop.manifest.replies else None
     hab = combine(OPENCODE_SURFACE, base, candidates, ["A", "B"])
     if stage.tree == hab:
         selected = "VALID_A_B_MERGE"
@@ -192,7 +200,7 @@ def cite_e1(budget: LiveBudget, steps: int, model_spec: ModelSpec) -> dict:
     else:
         selected = "VALID_OTHER_TREE" if not stage.fell_back else "OPERATIONAL_FAILURE"
     result = {
-        "phase": 2,
+        "phase": phase,
         "idea": "CITE-R",
         "experiment": "E1",
         "interface": "COMPACT_MANIFEST",
@@ -212,6 +220,9 @@ def cite_e1(budget: LiveBudget, steps: int, model_spec: ModelSpec) -> dict:
         "hidden_offline_evaluation": evaluate_cite(stage.tree),
         "cost_usd": stage.usd,
         "calls": prop.calls,
+        "cache_hit": bool(transport_reply and transport_reply.cached),
+        "usage": dict(transport_reply.usage) if transport_reply else {},
+        "wall_s": transport_reply.wall_s if transport_reply else 0.0,
     }
     out = RESULTS / experiment
     out.mkdir(parents=True, exist_ok=True)

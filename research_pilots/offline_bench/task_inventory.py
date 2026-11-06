@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-import re
 import subprocess
 from collections import defaultdict
 from pathlib import Path
@@ -13,13 +12,9 @@ from pathlib import Path
 from harness2 import config
 from harness2.benchmarks.jobbench import JobBenchAdapter
 from harness2.benchmarks.lab import LabAdapter
+from research_pilots.phase4.deliverables import extract_deliverables
 
 from . import SEED
-
-_FILE_REF = re.compile(
-    r"\b[\w][\w .()\-]{0,100}\.(?:xlsx|xls|docx|pptx|pdf|csv|json|md|txt|py)\b",
-    re.I,
-)
 
 
 def _digest_tree(root: Path | None) -> str:
@@ -85,18 +80,21 @@ def _record(benchmark: str, adapter, task_id: str) -> dict:
                         "suffix": path.suffix.lower(),
                     }
                 )
+    deliverable_inventory = extract_deliverables(benchmark, adapter, task_id)
     if benchmark == "lab":
         raw = adapter._task_json(task_id)
-        deliverables = [str(name) for name in (raw.get("deliverables") or {})]
+        legacy_deliverables = [str(name) for name in (raw.get("deliverables") or {})]
         benchmark_path = config.lab_repo() / "tasks" / task_id
     else:
-        deliverables = sorted(set(match.strip() for match in _FILE_REF.findall(prompt)))
+        # Retained only to make the Phase-3 extraction error auditable. Do not use this field
+        # for new interventions: it included source filenames mentioned in the instruction.
+        legacy_deliverables = []
         benchmark_path = adapter._dataset_task(task_id)
-    meaningful_format_check = bool(deliverables) or any(
-        row["suffix"] in {".csv", ".json", ".xlsx", ".xls", ".docx", ".pptx", ".pdf"}
-        for row in files
+    deliverables = deliverable_inventory["explicit_output_files"]
+    meaningful_format_check = bool(deliverables)
+    classification = (
+        "NATIVE_DETERMINISTIC" if meaningful_format_check else "DERIVED_CONTROLLED"
     )
-    classification = "NATIVE_DETERMINISTIC" if meaningful_format_check else "DERIVED_CONTROLLED"
     return {
         "benchmark": benchmark,
         "task_id": task_id,
@@ -107,6 +105,8 @@ def _record(benchmark: str, adapter, task_id: str) -> dict:
         "source_files": files,
         "source_digest_sha256": _digest_tree(source),
         "requested_deliverables": deliverables,
+        "deliverable_inventory": deliverable_inventory,
+        "legacy_requested_deliverables": legacy_deliverables,
         "editable_harness_surface": list(adapter.substrate.surface().always_on),
         "prior_rollout_data_exists": _prior_rollout(benchmark, task_id),
         "deterministic_output_checks": (
@@ -115,7 +115,9 @@ def _record(benchmark: str, adapter, task_id: str) -> dict:
             else []
         ),
         "full_correctness_requires_llm_judge": True,
-        "controlled_shift_possible": bool(meaningful_format_check),
+        "controlled_shift_possible": bool(
+            meaningful_format_check or deliverable_inventory["deliverable_descriptions"]
+        ),
         "classification": classification,
         "classification_reason": (
             "A requested artifact's presence, name, format, and parseability are meaningful "

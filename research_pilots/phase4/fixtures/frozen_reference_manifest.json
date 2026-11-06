@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "records": [
+    {
+      "condition_id": "PAVE_P0_K1",
+      "reference_hash": "9dacd93357590b15f7129095a2a8baae2b1345e20082bb07cbd10b202c08a828",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_P1_K1",
+      "reference_hash": "9dacd93357590b15f7129095a2a8baae2b1345e20082bb07cbd10b202c08a828",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_P0_K3",
+      "reference_hash": "1f81b126e7aecc38affc1fccdcb3f9a9a074b762eaba5a718024ff9c379ad2fe",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_P1_K3",
+      "reference_hash": "1f81b126e7aecc38affc1fccdcb3f9a9a074b762eaba5a718024ff9c379ad2fe",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_P2_K3",
+      "reference_hash": "1f81b126e7aecc38affc1fccdcb3f9a9a074b762eaba5a718024ff9c379ad2fe",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_P3_K3",
+      "reference_hash": "1f81b126e7aecc38affc1fccdcb3f9a9a074b762eaba5a718024ff9c379ad2fe",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_P4_K3",
+      "reference_hash": "1f81b126e7aecc38affc1fccdcb3f9a9a074b762eaba5a718024ff9c379ad2fe",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "PAVE_POSITIVE_K3",
+      "reference_hash": "d63ced94c74e226e353a5bd383092c78268d4b1683fc946cf449ea191dc2943b",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "CITE_V0",
+      "reference_hash": "6e4cb60fc2ef6dd709cdab0488f57342044b004fc08a525700c2912b643efca6",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "CITE_V1",
+      "reference_hash": "6e4cb60fc2ef6dd709cdab0488f57342044b004fc08a525700c2912b643efca6",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    },
+    {
+      "condition_id": "CITE_V2",
+      "reference_hash": "6e4cb60fc2ef6dd709cdab0488f57342044b004fc08a525700c2912b643efca6",
+      "provenance_categories": [
+        "DETERMINISTIC_EXECUTION",
+        "SYNTHETIC_REPLAY"
+      ]
+    }
+  ],
+  "note": "Hashes bind immutable deterministic records and candidate trees; no oracle values."
+}

@@ -22,8 +22,17 @@ def _visible(items: list[dict]) -> bytes:
 def _condition(world: str, name: str) -> list[dict]:
     shifted = world == "GENUINE_SHIFT"
     if name == "complete_original_evidence":
-        message = "ERROR: required output contract version=2" if shifted else "operation succeeded"
-        return [{"kind": "execution", "message": message, "source_id": "execution-1"}]
+        return [
+            {
+                "kind": "error" if shifted else "execution",
+                "message": (
+                    "ERROR: required output contract version=2"
+                    if shifted
+                    else "operation succeeded"
+                ),
+                "source_id": "execution-1",
+            }
+        ]
     if name == "isolated_misleading_observation":
         return [{"kind": "error", "message": "ERROR: required output contract version=2"}]
     if name in ("repeated_misleading_observation", "no_independent_diagnostic"):
@@ -41,35 +50,86 @@ def _condition(world: str, name: str) -> list[dict]:
             for _ in range(3)
         ]
     if name == "independent_diagnostic":
-        diagnostic = "adapt_required" if shifted else "original_harness_valid"
-        return [
-            {"kind": "error", "message": "ERROR: required output contract version=2"},
-            {
-                "kind": "diagnostic",
-                "message": diagnostic,
-                "source_id": "independent-contract-probe",
-            },
-        ]
+        return [{"kind": "error", "message": "ERROR: required output contract version=2"}]
     raise ValueError(name)
 
 
-def _decision(policy: str, items: list[dict]) -> tuple[str, int]:
+def _diagnostic_response(world: str) -> dict:
+    return {
+        "kind": "diagnostic",
+        "message": "adapt_required" if world == "GENUINE_SHIFT" else "original_harness_valid",
+        "source_id": "independent-contract-probe",
+    }
+
+
+def _binary_decision(policy: str, items: list[dict]) -> str:
     errors = [item for item in items if item["kind"] == "error"]
     diagnostics = [item["message"] for item in items if item["kind"] == "diagnostic"]
     if policy == "keep":
-        return "KEEP", 0
+        return "KEEP"
     if policy == "repeat_count":
-        return ("ADAPT" if len(errors) >= 3 else "KEEP"), 0
+        return "ADAPT" if len(errors) >= 3 else "KEEP"
     if policy == "source_deduplication":
         sources = {item.get("source_id") or f"appearance-{i}" for i, item in enumerate(errors)}
-        return ("ADAPT" if len(sources) >= 3 else "KEEP"), 0
+        return "ADAPT" if len(sources) >= 3 else "KEEP"
     if policy == "independent_check":
-        return ("ADAPT" if "adapt_required" in diagnostics else "KEEP"), 0
-    if policy == "diagnostic_first":
-        if not diagnostics:
-            return "QUERY_DIAGNOSTIC", 1
-        return ("ADAPT" if "adapt_required" in diagnostics else "KEEP"), 1
+        return "ADAPT" if "adapt_required" in diagnostics else "KEEP"
     raise ValueError(policy)
+
+
+def decision_trace(
+    policy: str,
+    initial_items: list[dict],
+    *,
+    diagnostic_available: bool,
+    diagnostic_response: dict | None,
+) -> dict:
+    """Run a policy through an optional information-acquisition step before scoring."""
+    initial = None
+    selected = None
+    response = None
+    queries = 0
+    cost = 0.0
+    final_items = list(initial_items)
+
+    wants_diagnostic = policy in ("independent_check", "diagnostic_first") and any(
+        item["kind"] == "error" for item in initial_items
+    )
+    if wants_diagnostic:
+        initial = "QUERY_DIAGNOSTIC"
+        if diagnostic_available and diagnostic_response is not None:
+            selected = "independent-contract-probe"
+            response = dict(diagnostic_response)
+            final_items.append(response)
+            queries = 1
+            cost = 1.0
+        elif policy == "diagnostic_first":
+            return {
+                "initial_decision": initial,
+                "diagnostic_selected": None,
+                "diagnostic_response": None,
+                "final_decision": "UNRESOLVED",
+                "diagnostic_queries": 0,
+                "diagnostic_cost": 0.0,
+                "unresolved": True,
+            }
+    if policy == "diagnostic_first":
+        final = (
+            "ADAPT"
+            if response and response["message"] == "adapt_required"
+            else "KEEP"
+        )
+    else:
+        final = _binary_decision(policy, final_items)
+    return {
+        "initial_decision": initial or final,
+        "diagnostic_selected": selected,
+        "diagnostic_response": response,
+        "final_decision": final,
+        "diagnostic_queries": queries,
+        "diagnostic_cost": cost,
+        "unresolved": False,
+    }
 
 
 def run_pave(inventory: dict, output: Path) -> dict:
@@ -96,10 +156,13 @@ def run_pave(inventory: dict, output: Path) -> dict:
     indistinguishable = 0
     metrics = {
         policy: {
-            "correct_keep_or_adapt": 0,
+            "correct_final_decisions": 0,
             "false_adaptations": 0,
             "missed_adaptations": 0,
             "diagnostic_queries": 0,
+            "diagnostic_cost": 0.0,
+            "final_binary_decisions": 0,
+            "unresolved_cases": 0,
             "decisions": 0,
         }
         for policy in policies
@@ -112,13 +175,25 @@ def run_pave(inventory: dict, output: Path) -> dict:
                 body = _visible(visible)
                 decisions = {}
                 for policy in policies:
-                    action, queries = _decision(policy, visible)
-                    decisions[policy] = {"action": action, "diagnostic_queries": queries}
+                    trace = decision_trace(
+                        policy,
+                        visible,
+                        diagnostic_available=condition == "independent_diagnostic",
+                        diagnostic_response=_diagnostic_response(world),
+                    )
+                    action = trace["final_decision"]
+                    trace["final_correct"] = action == correct
+                    decisions[policy] = trace
                     metric = metrics[policy]
-                    metric["diagnostic_queries"] += queries
+                    metric["diagnostic_queries"] += trace["diagnostic_queries"]
+                    metric["diagnostic_cost"] += trace["diagnostic_cost"]
                     metric["decisions"] += 1
-                    if action == correct:
-                        metric["correct_keep_or_adapt"] += 1
+                    if trace["unresolved"]:
+                        metric["unresolved_cases"] += 1
+                        continue
+                    metric["final_binary_decisions"] += 1
+                    if trace["final_correct"]:
+                        metric["correct_final_decisions"] += 1
                     elif action == "ADAPT" and correct == "KEEP":
                         metric["false_adaptations"] += 1
                     elif action == "KEEP" and correct == "ADAPT":
@@ -159,7 +234,13 @@ def run_pave(inventory: dict, output: Path) -> dict:
         "correct_action_hidden": "KEEP",
         "visible_evidence": negative_items,
         "policy_decisions": {
-            policy: _decision(policy, negative_items)[0] for policy in policies
+            policy: decision_trace(
+                policy,
+                negative_items,
+                diagnostic_available=False,
+                diagnostic_response=None,
+            )
+            for policy in policies
         },
         "provenance_category": "DERIVED_BENCHMARK_TASK",
     }
@@ -167,6 +248,7 @@ def run_pave(inventory: dict, output: Path) -> dict:
         n = metric["decisions"]
         metric["false_adaptation_rate"] = metric["false_adaptations"] / n
         metric["missed_adaptation_rate"] = metric["missed_adaptations"] / n
+        metric["unresolved_rate"] = metric["unresolved_cases"] / n
     result = {
         "schema_version": 1,
         "research_question": "evidence identifiability, not LLM behavior",

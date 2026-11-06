@@ -174,9 +174,9 @@ harnesses; installed benchmark bytes remain unchanged and are verified by SHA-25
 
 def _pave_report(pave: dict) -> str:
     metrics = "\n".join(
-        f"| {name} | {row['correct_keep_or_adapt']}/{row['decisions']} | "
+        f"| {name} | {row['correct_final_decisions']}/{row['final_binary_decisions']} | "
         f"{row['false_adaptations']} | {row['missed_adaptations']} | "
-        f"{row['diagnostic_queries']} |"
+        f"{row['diagnostic_queries']} | {row['unresolved_cases']} |"
         for name, row in pave["policy_metrics"].items()
     )
     cases = "\n".join(
@@ -195,21 +195,23 @@ contracts are `DERIVED_BENCHMARK_TASK` plus `SYNTHETIC_REPLAY`, not original tra
 Across {pave['world_pair_count']} paired conditions,
 **{pave['observationally_indistinguishable_pairs']} pairs were byte-identical** between a
 genuine shift and an evidence defect. No controller can identify hidden cause from those bytes.
-Complete original evidence and independent diagnostics break ambiguity; recurrence alone does
-not. Provenance IDs state shared source only and never state which source is correct.
+Complete original evidence breaks initial ambiguity. In the diagnostic condition, a controller
+may query a separately sourced observation that can then break it; recurrence alone does not.
+Provenance IDs state shared source only and never state which source is correct.
 
 The exact transformations were: one truthful execution record for `complete_original_evidence`;
 one unlabeled contract-version error for `isolated_misleading_observation`; three byte-equal
 unlabeled errors for `repeated_misleading_observation` and `no_independent_diagnostic`; those
 same three errors labeled with one factual source ID for `repeated_shared_provenance`; and one
-error plus a separately sourced contract probe for `independent_diagnostic`.
+initial error with a separately sourced contract probe available only after a diagnostic query
+for `independent_diagnostic`.
 
 | Benchmark | Task | Condition | Cause identifiable | Genuine/defect visible SHA-256 prefix |
 |---|---|---|---|---|
 {cases}
 
-| Policy | Correct binary decisions | False adaptations | Missed adaptations | Diagnostic queries |
-|---|---:|---:|---:|---:|
+| Policy | Correct final binary decisions | False adaptations | Missed adaptations | Diagnostic queries | Unresolved |
+|---|---:|---:|---:|---:|---:|
 {metrics}
 
 Source deduplication prevents the repeated-single-source false adaptation, but necessarily
